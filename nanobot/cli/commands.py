@@ -1,4 +1,4 @@
-"""CLI commands for nanobot."""
+"""nanobot 的 CLI 命令。"""
 
 import asyncio
 import os
@@ -32,15 +32,15 @@ console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
 
 # ---------------------------------------------------------------------------
-# CLI input: prompt_toolkit for editing, paste, history, and display
+# CLI 输入：使用 prompt_toolkit 进行编辑、粘贴、历史和显示
 # ---------------------------------------------------------------------------
 
 _PROMPT_SESSION: PromptSession | None = None
-_SAVED_TERM_ATTRS = None  # original termios settings, restored on exit
+_SAVED_TERM_ATTRS = None  # 原始的 termios 设置，退出时恢复
 
 
 def _flush_pending_tty_input() -> None:
-    """Drop unread keypresses typed while the model was generating output."""
+    """丢弃模型生成输出期间输入的未读按键。"""
     try:
         fd = sys.stdin.fileno()
         if not os.isatty(fd):
@@ -67,7 +67,7 @@ def _flush_pending_tty_input() -> None:
 
 
 def _restore_terminal() -> None:
-    """Restore terminal to its original state (echo, line buffering, etc.)."""
+    """将终端恢复到原始状态（回显、行缓冲等）。"""
     if _SAVED_TERM_ATTRS is None:
         return
     try:
@@ -78,10 +78,10 @@ def _restore_terminal() -> None:
 
 
 def _init_prompt_session() -> None:
-    """Create the prompt_toolkit session with persistent file history."""
+    """创建带有持久化文件历史的 prompt_toolkit 会话。"""
     global _PROMPT_SESSION, _SAVED_TERM_ATTRS
 
-    # Save terminal state so we can restore it on exit
+    # 保存终端状态以便退出时恢复
     try:
         import termios
         _SAVED_TERM_ATTRS = termios.tcgetattr(sys.stdin.fileno())
@@ -94,12 +94,12 @@ def _init_prompt_session() -> None:
     _PROMPT_SESSION = PromptSession(
         history=FileHistory(str(history_file)),
         enable_open_in_editor=False,
-        multiline=False,   # Enter submits (single line mode)
+        multiline=False,   # 回车提交（单行模式）
     )
 
 
 def _print_agent_response(response: str, render_markdown: bool) -> None:
-    """Render assistant response with consistent terminal styling."""
+    """使用一致的终端样式渲染助手响应。"""
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
@@ -109,17 +109,17 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
 
 
 def _is_exit_command(command: str) -> bool:
-    """Return True when input should end interactive chat."""
+    """当输入应该结束交互式聊天时返回 True。"""
     return command.lower() in EXIT_COMMANDS
 
 
 async def _read_interactive_input_async() -> str:
-    """Read user input using prompt_toolkit (handles paste, history, display).
+    """使用 prompt_toolkit 读取用户输入（处理粘贴、历史、显示）。
 
-    prompt_toolkit natively handles:
-    - Multiline paste (bracketed paste mode)
-    - History navigation (up/down arrows)
-    - Clean display (no ghost characters or artifacts)
+    prompt_toolkit 原生支持：
+    - 多行粘贴（括号粘贴模式）
+    - 历史导航（上下箭头）
+    - 清晰显示（无幽灵字符或伪影）
     """
     if _PROMPT_SESSION is None:
         raise RuntimeError("Call _init_prompt_session() first")
@@ -145,18 +145,18 @@ def main(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
 ):
-    """nanobot - Personal AI Assistant."""
+    """nanobot - 个人 AI 助手。"""
     pass
 
 
 # ============================================================================
-# Onboard / Setup
+# 初始化 / 设置
 # ============================================================================
 
 
 @app.command()
 def onboard():
-    """Initialize nanobot configuration and workspace."""
+    """初始化 nanobot 配置和工作空间。"""
     from nanobot.config.loader import get_config_path, load_config, save_config
     from nanobot.config.schema import Config
     from nanobot.utils.helpers import get_workspace_path
@@ -200,7 +200,7 @@ def onboard():
 
 
 def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
+    """根据配置创建适当的 LLM 提供商。"""
     from nanobot.providers.litellm_provider import LiteLLMProvider
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.custom_provider import CustomProvider
@@ -209,11 +209,11 @@ def _make_provider(config: Config):
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
-    # OpenAI Codex (OAuth)
+    # OpenAI Codex（OAuth）
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
         return OpenAICodexProvider(default_model=model)
 
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
+    # 自定义：直连 OpenAI 兼容端点，绕过 LiteLLM
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -238,16 +238,16 @@ def _make_provider(config: Config):
 
 
 # ============================================================================
-# Gateway / Server
+# 网关 / 服务器
 # ============================================================================
 
 
 @app.command()
 def gateway(
-    port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    port: int = typer.Option(18790, "--port", "-p", help="网关端口"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="详细输出"),
 ):
-    """Start the nanobot gateway."""
+    """启动 nanobot 网关。"""
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
@@ -269,11 +269,11 @@ def gateway(
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
     
-    # Create cron service first (callback set after agent creation)
+    # 首先创建 cron 服务（回调在创建 agent 后设置）
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
-    
-    # Create agent with cron service
+
+    # 创建带有 cron 服务的 agent
     agent = AgentLoop(
         bus=bus,
         provider=provider,
@@ -292,9 +292,9 @@ def gateway(
         channels_config=config.channels,
     )
     
-    # Set cron callback (needs agent)
+    # 设置 cron 回调（需要 agent）
     async def on_cron_job(job: CronJob) -> str | None:
-        """Execute a cron job through the agent."""
+        """通过 agent 执行 cron 任务。"""
         response = await agent.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
@@ -311,13 +311,13 @@ def gateway(
         return response
     cron.on_job = on_cron_job
     
-    # Create channel manager
+    # 创建频道管理器
     channels = ChannelManager(config, bus)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
-        """Pick a routable channel/chat target for heartbeat-triggered messages."""
+        """为心跳触发的消息选择一个可路由的频道/聊天目标。"""
         enabled = set(channels.enabled_channels)
-        # Prefer the most recently updated non-internal session on an enabled channel.
+        # 优先选择已启用频道上最近更新的非内部会话。
         for item in session_manager.list_sessions():
             key = item.get("key") or ""
             if ":" not in key:
@@ -327,12 +327,12 @@ def gateway(
                 continue
             if channel in enabled and chat_id:
                 return channel, chat_id
-        # Fallback keeps prior behavior but remains explicit.
+        # 回退保持先前行为但保持明确。
         return "cli", "direct"
 
-    # Create heartbeat service
+    # 创建心跳服务
     async def on_heartbeat_execute(tasks: str) -> str:
-        """Phase 2: execute heartbeat tasks through the full agent loop."""
+        """第二阶段：通过完整的 agent 循环执行心跳任务。"""
         channel, chat_id = _pick_heartbeat_target()
 
         async def _silent(*_args, **_kwargs):
@@ -347,11 +347,11 @@ def gateway(
         )
 
     async def on_heartbeat_notify(response: str) -> None:
-        """Deliver a heartbeat response to the user's channel."""
+        """将心跳响应传递到用户的频道。"""
         from nanobot.bus.events import OutboundMessage
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
-            return  # No external channel available to deliver to
+            return  # 没有可用的外部频道进行传递
         await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
 
     hb_cfg = config.gateway.heartbeat
@@ -399,18 +399,18 @@ def gateway(
 
 
 # ============================================================================
-# Agent Commands
+# Agent 命令
 # ============================================================================
 
 
 @app.command()
 def agent(
-    message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
-    session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
-    markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    message: str = typer.Option(None, "--message", "-m", help="要发送给 agent 的消息"),
+    session_id: str = typer.Option("cli:direct", "--session", "-s", help="会话 ID"),
+    markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="将助手输出渲染为 Markdown"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="聊天期间显示 nanobot 运行时日志"),
 ):
-    """Interact with the agent directly."""
+    """直接与 agent 交互。"""
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
@@ -423,7 +423,7 @@ def agent(
     bus = MessageBus()
     provider = _make_provider(config)
 
-    # Create cron service for tool usage (no callback needed for CLI unless running)
+    # 创建 cron 服务用于工具使用（CLI 不需要回调，除非正在运行）
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
@@ -449,13 +449,13 @@ def agent(
         channels_config=config.channels,
     )
     
-    # Show spinner when logs are off (no output to miss); skip when logs are on
+    # 当日志关闭时显示旋转器（没有输出会丢失）；当日志开启时跳过
     def _thinking_ctx():
         if logs:
             from contextlib import nullcontext
             return nullcontext()
-        # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        # 动画旋转器可以安全地与 prompt_toolkit 输入处理一起使用
+        return console.status("[dim]nanobot 正在思考...[/dim]", spinner="dots")
 
     async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
         ch = agent_loop.channels_config
@@ -466,7 +466,7 @@ def agent(
         console.print(f"  [dim]↳ {content}[/dim]")
 
     if message:
-        # Single message mode — direct call, no bus needed
+        # 单消息模式 —— 直接调用，不需要总线
         async def run_once():
             with _thinking_ctx():
                 response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
@@ -475,10 +475,10 @@ def agent(
 
         asyncio.run(run_once())
     else:
-        # Interactive mode — route through bus like other channels
+        # 交互模式 —— 像其他频道一样通过总线路由
         from nanobot.bus.events import InboundMessage
         _init_prompt_session()
-        console.print(f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
+        console.print(f"{__logo__} 交互模式（输入 [bold]exit[/bold] 或 [bold]Ctrl+C[/bold] 退出）\n")
 
         if ":" in session_id:
             cli_channel, cli_chat_id = session_id.split(":", 1)
@@ -572,17 +572,17 @@ def agent(
 
 
 # ============================================================================
-# Channel Commands
+# 频道命令
 # ============================================================================
 
 
-channels_app = typer.Typer(help="Manage channels")
+channels_app = typer.Typer(help="管理频道")
 app.add_typer(channels_app, name="channels")
 
 
 @channels_app.command("status")
 def channels_status():
-    """Show channel status."""
+    """显示频道状态。"""
     from nanobot.config.loader import load_config
 
     config = load_config()
@@ -674,25 +674,25 @@ def channels_status():
 
 
 def _get_bridge_dir() -> Path:
-    """Get the bridge directory, setting it up if needed."""
+    """获取桥接目录，如果需要则进行设置。"""
     import shutil
     import subprocess
-    
-    # User's bridge location
+
+    # 用户的桥接位置
     user_bridge = Path.home() / ".nanobot" / "bridge"
-    
-    # Check if already built
+
+    # 检查是否已构建
     if (user_bridge / "dist" / "index.js").exists():
         return user_bridge
-    
-    # Check for npm
+
+    # 检查 npm
     if not shutil.which("npm"):
-        console.print("[red]npm not found. Please install Node.js >= 18.[/red]")
+        console.print("[red]未找到 npm。请安装 Node.js >= 18。[/red]")
         raise typer.Exit(1)
-    
-    # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
-    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
+
+    # 查找源桥接：首先检查包数据，然后检查源目录
+    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge（已安装）
+    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge（开发）
     
     source = None
     if (pkg_bridge / "package.json").exists():
@@ -701,47 +701,47 @@ def _get_bridge_dir() -> Path:
         source = src_bridge
     
     if not source:
-        console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall nanobot")
+        console.print("[red]未找到桥接源。[/red]")
+        console.print("尝试重新安装：pip install --force-reinstall nanobot")
         raise typer.Exit(1)
-    
-    console.print(f"{__logo__} Setting up bridge...")
-    
-    # Copy to user directory
+
+    console.print(f"{__logo__} 正在设置桥接...")
+
+    # 复制到用户目录
     user_bridge.parent.mkdir(parents=True, exist_ok=True)
     if user_bridge.exists():
         shutil.rmtree(user_bridge)
     shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
-    
-    # Install and build
+
+    # 安装和构建
     try:
-        console.print("  Installing dependencies...")
+        console.print("  正在安装依赖...")
         subprocess.run(["npm", "install"], cwd=user_bridge, check=True, capture_output=True)
-        
-        console.print("  Building...")
+
+        console.print("  正在构建...")
         subprocess.run(["npm", "run", "build"], cwd=user_bridge, check=True, capture_output=True)
-        
-        console.print("[green]✓[/green] Bridge ready\n")
+
+        console.print("[green]✓[/green] 桥接准备就绪\n")
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Build failed: {e}[/red]")
+        console.print(f"[red]构建失败：{e}[/red]")
         if e.stderr:
             console.print(f"[dim]{e.stderr.decode()[:500]}[/dim]")
         raise typer.Exit(1)
-    
+
     return user_bridge
 
 
 @channels_app.command("login")
 def channels_login():
-    """Link device via QR code."""
+    """通过二维码链接设备。"""
     import subprocess
     from nanobot.config.loader import load_config
-    
+
     config = load_config()
     bridge_dir = _get_bridge_dir()
-    
-    console.print(f"{__logo__} Starting bridge...")
-    console.print("Scan the QR code to connect.\n")
+
+    console.print(f"{__logo__} 正在启动桥接...")
+    console.print("扫描二维码以连接。\n")
     
     env = {**os.environ}
     if config.channels.whatsapp.bridge_token:
@@ -750,24 +750,24 @@ def channels_login():
     try:
         subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Bridge failed: {e}[/red]")
+        console.print(f"[red]桥接失败：{e}[/red]")
     except FileNotFoundError:
-        console.print("[red]npm not found. Please install Node.js.[/red]")
+        console.print("[red]未找到 npm。请安装 Node.js。[/red]")
 
 
 # ============================================================================
-# Cron Commands
+# Cron 命令
 # ============================================================================
 
-cron_app = typer.Typer(help="Manage scheduled tasks")
+cron_app = typer.Typer(help="管理定时任务")
 app.add_typer(cron_app, name="cron")
 
 
 @cron_app.command("list")
 def cron_list(
-    all: bool = typer.Option(False, "--all", "-a", help="Include disabled jobs"),
+    all: bool = typer.Option(False, "--all", "-a", help="包含已禁用的任务"),
 ):
-    """List scheduled jobs."""
+    """列出定时任务。"""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     
@@ -791,15 +791,15 @@ def cron_list(
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo
     for job in jobs:
-        # Format schedule
+        # 格式化调度
         if job.schedule.kind == "every":
-            sched = f"every {(job.schedule.every_ms or 0) // 1000}s"
+            sched = f"每 {(job.schedule.every_ms or 0) // 1000} 秒"
         elif job.schedule.kind == "cron":
             sched = f"{job.schedule.expr or ''} ({job.schedule.tz})" if job.schedule.tz else (job.schedule.expr or "")
         else:
-            sched = "one-time"
-        
-        # Format next run
+            sched = "一次性"
+
+        # 格式化下次运行
         next_run = ""
         if job.state.next_run_at_ms:
             ts = job.state.next_run_at_ms / 1000
@@ -818,17 +818,17 @@ def cron_list(
 
 @cron_app.command("add")
 def cron_add(
-    name: str = typer.Option(..., "--name", "-n", help="Job name"),
-    message: str = typer.Option(..., "--message", "-m", help="Message for agent"),
-    every: int = typer.Option(None, "--every", "-e", help="Run every N seconds"),
-    cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron expression (e.g. '0 9 * * *')"),
-    tz: str | None = typer.Option(None, "--tz", help="IANA timezone for cron (e.g. 'America/Vancouver')"),
-    at: str = typer.Option(None, "--at", help="Run once at time (ISO format)"),
-    deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
-    to: str = typer.Option(None, "--to", help="Recipient for delivery"),
-    channel: str = typer.Option(None, "--channel", help="Channel for delivery (e.g. 'telegram', 'whatsapp')"),
+    name: str = typer.Option(..., "--name", "-n", help="任务名称"),
+    message: str = typer.Option(..., "--message", "-m", help="发送给 agent 的消息"),
+    every: int = typer.Option(None, "--every", "-e", help="每 N 秒运行一次"),
+    cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron 表达式（例如 '0 9 * * *'）"),
+    tz: str | None = typer.Option(None, "--tz", help="Cron 的 IANA 时区（例如 'America/Vancouver'）"),
+    at: str = typer.Option(None, "--at", help="在指定时间运行一次（ISO 格式）"),
+    deliver: bool = typer.Option(False, "--deliver", "-d", help="将响应传递到频道"),
+    to: str = typer.Option(None, "--to", help="传递的接收者"),
+    channel: str = typer.Option(None, "--channel", help="传递的频道（例如 'telegram'、'whatsapp'）"),
 ):
-    """Add a scheduled job."""
+    """添加定时任务。"""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronSchedule
@@ -871,9 +871,9 @@ def cron_add(
 
 @cron_app.command("remove")
 def cron_remove(
-    job_id: str = typer.Argument(..., help="Job ID to remove"),
+    job_id: str = typer.Argument(..., help="要删除的任务 ID"),
 ):
-    """Remove a scheduled job."""
+    """删除定时任务。"""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     
@@ -888,10 +888,10 @@ def cron_remove(
 
 @cron_app.command("enable")
 def cron_enable(
-    job_id: str = typer.Argument(..., help="Job ID"),
-    disable: bool = typer.Option(False, "--disable", help="Disable instead of enable"),
+    job_id: str = typer.Argument(..., help="任务 ID"),
+    disable: bool = typer.Option(False, "--disable", help="禁用而不是启用"),
 ):
-    """Enable or disable a job."""
+    """启用或禁用任务。"""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     
@@ -908,10 +908,10 @@ def cron_enable(
 
 @cron_app.command("run")
 def cron_run(
-    job_id: str = typer.Argument(..., help="Job ID to run"),
-    force: bool = typer.Option(False, "--force", "-f", help="Run even if disabled"),
+    job_id: str = typer.Argument(..., help="要运行的任务 ID"),
+    force: bool = typer.Option(False, "--force", "-f", help="即使已禁用也运行"),
 ):
-    """Manually run a job."""
+    """手动运行任务。"""
     from loguru import logger
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.cron.service import CronService
@@ -968,13 +968,13 @@ def cron_run(
 
 
 # ============================================================================
-# Status Commands
+# 状态命令
 # ============================================================================
 
 
 @app.command()
 def status():
-    """Show nanobot status."""
+    """显示 nanobot 状态。"""
     from nanobot.config.loader import load_config, get_config_path
 
     config_path = get_config_path()
@@ -991,7 +991,7 @@ def status():
 
         console.print(f"Model: {config.agents.defaults.model}")
         
-        # Check API keys from registry
+        # 从注册表检查 API 密钥
         for spec in PROVIDERS:
             p = getattr(config.providers, spec.name, None)
             if p is None:
@@ -999,21 +999,21 @@ def status():
             if spec.is_oauth:
                 console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
             elif spec.is_local:
-                # Local deployments show api_base instead of api_key
+                # 本地部署显示 api_base 而不是 api_key
                 if p.api_base:
                     console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
                 else:
-                    console.print(f"{spec.label}: [dim]not set[/dim]")
+                    console.print(f"{spec.label}: [dim]未设置[/dim]")
             else:
                 has_key = bool(p.api_key)
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]未设置[/dim]'}")
 
 
 # ============================================================================
-# OAuth Login
+# OAuth 登录
 # ============================================================================
 
-provider_app = typer.Typer(help="Manage providers")
+provider_app = typer.Typer(help="管理提供商")
 app.add_typer(provider_app, name="provider")
 
 
@@ -1029,9 +1029,9 @@ def _register_login(name: str):
 
 @provider_app.command("login")
 def provider_login(
-    provider: str = typer.Argument(..., help="OAuth provider (e.g. 'openai-codex', 'github-copilot')"),
+    provider: str = typer.Argument(..., help="OAuth 提供商（例如 'openai-codex'、'github-copilot'）"),
 ):
-    """Authenticate with an OAuth provider."""
+    """使用 OAuth 提供商进行身份验证。"""
     from nanobot.providers.registry import PROVIDERS
 
     key = provider.replace("-", "_")
@@ -1060,17 +1060,17 @@ def _login_openai_codex() -> None:
         except Exception:
             pass
         if not (token and token.access):
-            console.print("[cyan]Starting interactive OAuth login...[/cyan]\n")
+            console.print("[cyan]正在启动交互式 OAuth 登录...[/cyan]\n")
             token = login_oauth_interactive(
                 print_fn=lambda s: console.print(s),
                 prompt_fn=lambda s: typer.prompt(s),
             )
         if not (token and token.access):
-            console.print("[red]✗ Authentication failed[/red]")
+            console.print("[red]✗ 身份验证失败[/red]")
             raise typer.Exit(1)
-        console.print(f"[green]✓ Authenticated with OpenAI Codex[/green]  [dim]{token.account_id}[/dim]")
+        console.print(f"[green]✓ 已通过 OpenAI Codex 身份验证[/green]  [dim]{token.account_id}[/dim]")
     except ImportError:
-        console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
+        console.print("[red]未安装 oauth_cli_kit。运行：pip install oauth-cli-kit[/red]")
         raise typer.Exit(1)
 
 
@@ -1078,7 +1078,7 @@ def _login_openai_codex() -> None:
 def _login_github_copilot() -> None:
     import asyncio
 
-    console.print("[cyan]Starting GitHub Copilot device flow...[/cyan]\n")
+    console.print("[cyan]正在启动 GitHub Copilot 设备流程...[/cyan]\n")
 
     async def _trigger():
         from litellm import acompletion
@@ -1086,9 +1086,9 @@ def _login_github_copilot() -> None:
 
     try:
         asyncio.run(_trigger())
-        console.print("[green]✓ Authenticated with GitHub Copilot[/green]")
+        console.print("[green]✓ 已通过 GitHub Copilot 身份验证[/green]")
     except Exception as e:
-        console.print(f"[red]Authentication error: {e}[/red]")
+        console.print(f"[red]身份验证错误：{e}[/red]")
         raise typer.Exit(1)
 
 
