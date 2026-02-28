@@ -1,4 +1,4 @@
-"""Context builder for assembling agent prompts."""
+"""用于组装智能体提示词的上下文构建器。"""
 
 import base64
 import mimetypes
@@ -13,7 +13,7 @@ from nanobot.agent.skills import SkillsLoader
 
 
 class ContextBuilder:
-    """Builds the context (system prompt + messages) for the agent."""
+    """为智能体构建上下文（系统提示词 + 消息列表）的构建器。"""
     
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
@@ -24,7 +24,7 @@ class ContextBuilder:
         self.skills = SkillsLoader(workspace)
     
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
-        """Build the system prompt from identity, bootstrap files, memory, and skills."""
+        """从身份、引导文件、记忆和技能中构建系统提示词。"""
         parts = [self._get_identity()]
 
         bootstrap = self._load_bootstrap_files()
@@ -53,7 +53,7 @@ Skills with available="false" need dependencies installed first - you can try in
         return "\n\n---\n\n".join(parts)
     
     def _get_identity(self) -> str:
-        """Get the core identity section."""
+        """获取核心身份部分。"""
         workspace_path = str(self.workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
@@ -82,7 +82,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
-        """Build untrusted runtime metadata block for injection before the user message."""
+        """构建不可信的运行时元数据块，用于在用户消息之前注入。"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         tz = time.strftime("%Z") or "UTC"
         lines = [f"Current Time: {now} ({tz})"]
@@ -91,7 +91,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
     
     def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
+        """从工作空间加载所有引导文件。"""
         parts = []
         
         for filename in self.BOOTSTRAP_FILES:
@@ -111,7 +111,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         channel: str | None = None,
         chat_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Build the complete message list for an LLM call."""
+        """为 LLM 调用构建完整的消息列表。"""
         return [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
             *history,
@@ -120,7 +120,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         ]
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
+        """构建用户消息内容，可选择包含 base64 编码的图片。"""
         if not media:
             return text
         
@@ -141,7 +141,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         self, messages: list[dict[str, Any]],
         tool_call_id: str, tool_name: str, result: str,
     ) -> list[dict[str, Any]]:
-        """Add a tool result to the message list."""
+        """将工具结果添加到消息列表中。"""
         messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
         return messages
     
@@ -151,7 +151,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Add an assistant message to the message list."""
+        """将助手消息添加到消息列表中。"""
         msg: dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
             msg["tool_calls"] = tool_calls
