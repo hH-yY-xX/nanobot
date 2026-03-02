@@ -20,8 +20,10 @@ class LLMResponse:
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
+    reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
+    thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
     reasoning_content: str | None = None  # Kimi、DeepSeek-R1 等
-    
+
     @property
     def has_tool_calls(self) -> bool:
         """检查响应是否包含工具调用。"""
@@ -34,7 +36,7 @@ class LLMProvider(ABC):
 
     实现应该处理每个提供商 API 的具体细节，同时保持一致的接口。
     """
-    
+
     def __init__(self, api_key: str | None = None, api_base: str | None = None):
         self.api_key = api_key
         self.api_base = api_base
@@ -75,9 +77,15 @@ class LLMProvider(ABC):
                     result.append(clean)
                     continue
 
+            if isinstance(content, dict):
+                clean = dict(msg)
+                clean["content"] = [content]
+                result.append(clean)
+                continue
+
             result.append(msg)
         return result
-    
+
     @abstractmethod
     async def chat(
         self,
@@ -86,6 +94,7 @@ class LLMProvider(ABC):
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        reasoning_effort: str | None = None,
     ) -> LLMResponse:
         """
         发送聊天完成请求。
