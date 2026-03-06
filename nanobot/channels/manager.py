@@ -149,6 +149,18 @@ class ChannelManager:
             except ImportError as e:
                 logger.warning("Matrix channel not available: {}", e)
 
+        # API channel (RESTful HTTP)
+        if self.config.channels.api.enabled:
+            try:
+                from nanobot.channels.api import ApiChannel
+                self.channels["api"] = ApiChannel(
+                    self.config.channels.api,
+                    self.bus,
+                )
+                logger.info("API channel enabled on port {}", self.config.channels.api.port)
+            except ImportError as e:
+                logger.warning("API channel not available: {}", e)
+
         self._validate_allow_from()
 
     def _validate_allow_from(self) -> None:

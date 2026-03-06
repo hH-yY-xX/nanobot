@@ -216,6 +216,17 @@ class MatrixConfig(Base):
     allow_room_mentions: bool = False
 
 
+class ApiConfig(Base):
+    """RESTful API channel configuration."""
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 18800
+    api_key: str = ""  # Optional API key for authentication (empty = no auth)
+    timeout: int = 120  # Request timeout in seconds
+    allow_from: list[str] = Field(default_factory=lambda: ["*"])  # Default allow all
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -231,6 +242,7 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
 
 
 class AgentDefaults(Base):

@@ -723,6 +723,15 @@ def channels_status():
         em_config
     )
 
+    # API
+    api = config.channels.api
+    api_config = f"http://{api.host}:{api.port}" if api.host else "[dim]not configured[/dim]"
+    table.add_row(
+        "API",
+        "✓" if api.enabled else "✗",
+        api_config
+    )
+
     console.print(table)
 
 
