@@ -1,13 +1,13 @@
 """
-提供商注册表 —— LLM 提供商元数据的单一事实来源。
+Provider Registry — single source of truth for LLM provider metadata.
 
-添加新提供商：
-  1. 在下面的 PROVIDERS 中添加一个 ProviderSpec。
-  2. 在 config/schema.py 的 ProvidersConfig 中添加一个字段。
-  完成。环境变量、前缀、配置匹配、状态显示都从此处派生。
+Adding a new provider:
+  1. Add a ProviderSpec to PROVIDERS below.
+  2. Add a field to ProvidersConfig in config/schema.py.
+  Done. Env vars, prefixing, config matching, status display all derive from here.
 
-顺序很重要 —— 它控制匹配优先级和回退策略。网关优先。
-每个条目都写出所有字段，以便你可以复制粘贴作为模板。
+Order matters — it controls match priority and fallback. Gateways first.
+Every entry writes out all fields so you can copy-paste as a template.
 """
 
 from __future__ import annotations
@@ -18,46 +18,46 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ProviderSpec:
-    """单个 LLM 提供商的元数据。查看下面的 PROVIDERS 获取真实示例。
+    """One LLM provider's metadata. See PROVIDERS below for real examples.
 
-    env_extras 值中的占位符：
-      {api_key}  — 用户的 API 密钥
-      {api_base} — 配置中的 api_base，或此规范的 default_api_base
+    Placeholders in env_extras values:
+      {api_key}  — the user's API key
+      {api_base} — api_base from config, or this spec's default_api_base
     """
 
-    # 身份标识
-    name: str                       # 配置字段名称，例如 "dashscope"
-    keywords: tuple[str, ...]       # 用于匹配的模型名称关键词（小写）
-    env_key: str                    # LiteLLM 环境变量，例如 "DASHSCOPE_API_KEY"
-    display_name: str = ""          # 在 `nanobot status` 中显示的名称
+    # identity
+    name: str  # config field name, e.g. "dashscope"
+    keywords: tuple[str, ...]  # model-name keywords for matching (lowercase)
+    env_key: str  # LiteLLM env var, e.g. "DASHSCOPE_API_KEY"
+    display_name: str = ""  # shown in `nanobot status`
 
-    # 模型前缀
-    litellm_prefix: str = ""                 # "dashscope" → 模型变为 "dashscope/{model}"
-    skip_prefixes: tuple[str, ...] = ()      # 如果模型已以这些前缀开头，则不添加前缀
+    # model prefixing
+    litellm_prefix: str = ""  # "dashscope" → model becomes "dashscope/{model}"
+    skip_prefixes: tuple[str, ...] = ()  # don't prefix if model already starts with these
 
-    # 额外的环境变量，例如 (("ZHIPUAI_API_KEY", "{api_key}"),)
+    # extra env vars, e.g. (("ZHIPUAI_API_KEY", "{api_key}"),)
     env_extras: tuple[tuple[str, str], ...] = ()
 
-    # 网关 / 本地检测
-    is_gateway: bool = False                 # 路由任意模型（OpenRouter、AiHubMix）
-    is_local: bool = False                   # 本地部署（vLLM、Ollama）
-    detect_by_key_prefix: str = ""           # 匹配 api_key 前缀，例如 "sk-or-"
-    detect_by_base_keyword: str = ""         # 匹配 api_base URL 中的子字符串
-    default_api_base: str = ""               # 回退基础 URL
+    # gateway / local detection
+    is_gateway: bool = False  # routes any model (OpenRouter, AiHubMix)
+    is_local: bool = False  # local deployment (vLLM, Ollama)
+    detect_by_key_prefix: str = ""  # match api_key prefix, e.g. "sk-or-"
+    detect_by_base_keyword: str = ""  # match substring in api_base URL
+    default_api_base: str = ""  # fallback base URL
 
-    # 网关行为
-    strip_model_prefix: bool = False         # 在重新添加前缀之前去除 "provider/"
+    # gateway behavior
+    strip_model_prefix: bool = False  # strip "provider/" before re-prefixing
 
-    # 每个模型的参数覆盖，例如 (("kimi-k2.5", {"temperature": 1.0}),)
+    # per-model param overrides, e.g. (("kimi-k2.5", {"temperature": 1.0}),)
     model_overrides: tuple[tuple[str, dict[str, Any]], ...] = ()
 
-    # 基于 OAuth 的提供商（例如 OpenAI Codex）不使用 API 密钥
-    is_oauth: bool = False                   # 如果为 True，使用 OAuth 流程而非 API 密钥
+    # OAuth-based providers (e.g., OpenAI Codex) don't use API keys
+    is_oauth: bool = False  # if True, uses OAuth flow instead of API key
 
-    # 直连提供商完全绕过 LiteLLM（例如 CustomProvider）
+    # Direct providers bypass LiteLLM entirely (e.g., CustomProvider)
     is_direct: bool = False
 
-    # 提供商支持内容块上的 cache_control（例如 Anthropic 提示缓存）
+    # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
     @property
@@ -66,12 +66,11 @@ class ProviderSpec:
 
 
 # ---------------------------------------------------------------------------
-# PROVIDERS —— 注册表。顺序 = 优先级。可复制任意条目作为模板。
+# PROVIDERS — the registry. Order = priority. Copy any entry as template.
 # ---------------------------------------------------------------------------
 
 PROVIDERS: tuple[ProviderSpec, ...] = (
-
-    # === 自定义（直连 OpenAI 兼容端点，绕过 LiteLLM）======
+    # === Custom (direct OpenAI-compatible endpoint, bypasses LiteLLM) ======
     ProviderSpec(
         name="custom",
         keywords=(),
@@ -80,17 +79,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         litellm_prefix="",
         is_direct=True,
     ),
-
-    # === 网关（通过 api_key / api_base 检测，而非模型名称）=========
-    # 网关可以路由任意模型，因此在回退时优先选择。
-
-    # OpenRouter：全球网关，密钥以 "sk-or-" 开头
+    # === Gateways (detected by api_key / api_base, not model name) =========
+    # Gateways can route any model, so they win in fallback.
+    # OpenRouter: global gateway, keys start with "sk-or-"
     ProviderSpec(
         name="openrouter",
         keywords=("openrouter",),
         env_key="OPENROUTER_API_KEY",
         display_name="OpenRouter",
-        litellm_prefix="openrouter",        # claude-3 → openrouter/claude-3
+        litellm_prefix="openrouter",  # claude-3 → openrouter/claude-3
         skip_prefixes=(),
         env_extras=(),
         is_gateway=True,
@@ -102,16 +99,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
         supports_prompt_caching=True,
     ),
-
-    # AiHubMix：全球网关，OpenAI 兼容接口。
-    # strip_model_prefix=True：它不理解 "anthropic/claude-3"，
-    # 所以我们去除前缀得到裸的 "claude-3"，然后重新添加前缀为 "openai/claude-3"。
+    # AiHubMix: global gateway, OpenAI-compatible interface.
+    # strip_model_prefix=True: it doesn't understand "anthropic/claude-3",
+    # so we strip to bare "claude-3" then re-prefix as "openai/claude-3".
     ProviderSpec(
         name="aihubmix",
         keywords=("aihubmix",),
-        env_key="OPENAI_API_KEY",           # OpenAI-compatible
+        env_key="OPENAI_API_KEY",  # OpenAI-compatible
         display_name="AiHubMix",
-        litellm_prefix="openai",            # → openai/{model}
+        litellm_prefix="openai",  # → openai/{model}
         skip_prefixes=(),
         env_extras=(),
         is_gateway=True,
@@ -119,11 +115,10 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_key_prefix="",
         detect_by_base_keyword="aihubmix",
         default_api_base="https://aihubmix.com/v1",
-        strip_model_prefix=True,            # anthropic/claude-3 → claude-3 → openai/claude-3
+        strip_model_prefix=True,  # anthropic/claude-3 → claude-3 → openai/claude-3
         model_overrides=(),
     ),
-
-    # SiliconFlow（硅基流动）：OpenAI 兼容网关，模型名称保留组织前缀
+    # SiliconFlow (硅基流动): OpenAI-compatible gateway, model names keep org prefix
     ProviderSpec(
         name="siliconflow",
         keywords=("siliconflow",),
@@ -140,8 +135,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # VolcEngine（火山引擎）：OpenAI 兼容网关
+    # VolcEngine (火山引擎): OpenAI-compatible gateway
     ProviderSpec(
         name="volcengine",
         keywords=("volcengine", "volces", "ark"),
@@ -158,10 +152,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # === 标准提供商（通过模型名称关键词匹配）==============
-
-    # Anthropic：LiteLLM 原生识别 "claude-*"，无需前缀。
+    # === Standard providers (matched by model-name keywords) ===============
+    # Anthropic: LiteLLM recognizes "claude-*" natively, no prefix needed.
     ProviderSpec(
         name="anthropic",
         keywords=("anthropic", "claude"),
@@ -179,8 +171,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
         supports_prompt_caching=True,
     ),
-
-    # OpenAI：LiteLLM 原生识别 "gpt-*"，无需前缀。
+    # OpenAI: LiteLLM recognizes "gpt-*" natively, no prefix needed.
     ProviderSpec(
         name="openai",
         keywords=("openai", "gpt"),
@@ -197,14 +188,13 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # OpenAI Codex：使用 OAuth，而非 API 密钥。
+    # OpenAI Codex: uses OAuth, not API key.
     ProviderSpec(
         name="openai_codex",
         keywords=("openai-codex",),
-        env_key="",                         # OAuth-based, no API key
+        env_key="",  # OAuth-based, no API key
         display_name="OpenAI Codex",
-        litellm_prefix="",                  # Not routed through LiteLLM
+        litellm_prefix="",  # Not routed through LiteLLM
         skip_prefixes=(),
         env_extras=(),
         is_gateway=False,
@@ -214,16 +204,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://chatgpt.com/backend-api",
         strip_model_prefix=False,
         model_overrides=(),
-        is_oauth=True,                      # OAuth-based authentication
+        is_oauth=True,  # OAuth-based authentication
     ),
-
-    # Github Copilot：使用 OAuth，而非 API 密钥。
+    # Github Copilot: uses OAuth, not API key.
     ProviderSpec(
         name="github_copilot",
         keywords=("github_copilot", "copilot"),
-        env_key="",                         # OAuth-based, no API key
+        env_key="",  # OAuth-based, no API key
         display_name="Github Copilot",
-        litellm_prefix="github_copilot",   # github_copilot/model → github_copilot/model
+        litellm_prefix="github_copilot",  # github_copilot/model → github_copilot/model
         skip_prefixes=("github_copilot/",),
         env_extras=(),
         is_gateway=False,
@@ -233,17 +222,16 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
-        is_oauth=True,                      # OAuth-based authentication
+        is_oauth=True,  # OAuth-based authentication
     ),
-
-    # DeepSeek：需要 "deepseek/" 前缀用于 LiteLLM 路由。
+    # DeepSeek: needs "deepseek/" prefix for LiteLLM routing.
     ProviderSpec(
         name="deepseek",
         keywords=("deepseek",),
         env_key="DEEPSEEK_API_KEY",
         display_name="DeepSeek",
-        litellm_prefix="deepseek",          # deepseek-chat → deepseek/deepseek-chat
-        skip_prefixes=("deepseek/",),       # avoid double-prefix
+        litellm_prefix="deepseek",  # deepseek-chat → deepseek/deepseek-chat
+        skip_prefixes=("deepseek/",),  # avoid double-prefix
         env_extras=(),
         is_gateway=False,
         is_local=False,
@@ -253,15 +241,14 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # Gemini：需要 "gemini/" 前缀用于 LiteLLM。
+    # Gemini: needs "gemini/" prefix for LiteLLM.
     ProviderSpec(
         name="gemini",
         keywords=("gemini",),
         env_key="GEMINI_API_KEY",
         display_name="Gemini",
-        litellm_prefix="gemini",            # gemini-pro → gemini/gemini-pro
-        skip_prefixes=("gemini/",),         # avoid double-prefix
+        litellm_prefix="gemini",  # gemini-pro → gemini/gemini-pro
+        skip_prefixes=("gemini/",),  # avoid double-prefix
         env_extras=(),
         is_gateway=False,
         is_local=False,
@@ -271,20 +258,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # Zhipu：LiteLLM 使用 "zai/" 前缀。
-    # 同时将密钥镜像到 ZHIPUAI_API_KEY（某些 LiteLLM 路径会检查该变量）。
-    # skip_prefixes：当已通过网关路由时不添加 "zai/" 前缀。
+    # Zhipu: LiteLLM uses "zai/" prefix.
+    # Also mirrors key to ZHIPUAI_API_KEY (some LiteLLM paths check that).
+    # skip_prefixes: don't add "zai/" when already routed via gateway.
     ProviderSpec(
         name="zhipu",
         keywords=("zhipu", "glm", "zai"),
         env_key="ZAI_API_KEY",
         display_name="Zhipu AI",
-        litellm_prefix="zai",              # glm-4 → zai/glm-4
+        litellm_prefix="zai",  # glm-4 → zai/glm-4
         skip_prefixes=("zhipu/", "zai/", "openrouter/", "hosted_vllm/"),
-        env_extras=(
-            ("ZHIPUAI_API_KEY", "{api_key}"),
-        ),
+        env_extras=(("ZHIPUAI_API_KEY", "{api_key}"),),
         is_gateway=False,
         is_local=False,
         detect_by_key_prefix="",
@@ -293,14 +277,13 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # DashScope：通义千问模型，需要 "dashscope/" 前缀。
+    # DashScope: Qwen models, needs "dashscope/" prefix.
     ProviderSpec(
         name="dashscope",
         keywords=("qwen", "dashscope"),
         env_key="DASHSCOPE_API_KEY",
         display_name="DashScope",
-        litellm_prefix="dashscope",         # qwen-max → dashscope/qwen-max
+        litellm_prefix="dashscope",  # qwen-max → dashscope/qwen-max
         skip_prefixes=("dashscope/", "openrouter/"),
         env_extras=(),
         is_gateway=False,
@@ -311,39 +294,33 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # Moonshot：Kimi 模型，需要 "moonshot/" 前缀。
-    # LiteLLM 需要 MOONSHOT_API_BASE 环境变量来找到端点。
-    # Kimi K2.5 API 强制要求 temperature >= 1.0。
+    # Moonshot: Kimi models, needs "moonshot/" prefix.
+    # LiteLLM requires MOONSHOT_API_BASE env var to find the endpoint.
+    # Kimi K2.5 API enforces temperature >= 1.0.
     ProviderSpec(
         name="moonshot",
         keywords=("moonshot", "kimi"),
         env_key="MOONSHOT_API_KEY",
         display_name="Moonshot",
-        litellm_prefix="moonshot",          # kimi-k2.5 → moonshot/kimi-k2.5
+        litellm_prefix="moonshot",  # kimi-k2.5 → moonshot/kimi-k2.5
         skip_prefixes=("moonshot/", "openrouter/"),
-        env_extras=(
-            ("MOONSHOT_API_BASE", "{api_base}"),
-        ),
+        env_extras=(("MOONSHOT_API_BASE", "{api_base}"),),
         is_gateway=False,
         is_local=False,
         detect_by_key_prefix="",
         detect_by_base_keyword="",
-        default_api_base="https://api.moonshot.ai/v1",   # intl; use api.moonshot.cn for China
+        default_api_base="https://api.moonshot.ai/v1",  # intl; use api.moonshot.cn for China
         strip_model_prefix=False,
-        model_overrides=(
-            ("kimi-k2.5", {"temperature": 1.0}),
-        ),
+        model_overrides=(("kimi-k2.5", {"temperature": 1.0}),),
     ),
-
-    # MiniMax：需要 "minimax/" 前缀用于 LiteLLM 路由。
-    # 使用 api.minimax.io/v1 的 OpenAI 兼容 API。
+    # MiniMax: needs "minimax/" prefix for LiteLLM routing.
+    # Uses OpenAI-compatible API at api.minimax.io/v1.
     ProviderSpec(
         name="minimax",
         keywords=("minimax",),
         env_key="MINIMAX_API_KEY",
         display_name="MiniMax",
-        litellm_prefix="minimax",            # MiniMax-M2.1 → minimax/MiniMax-M2.1
+        litellm_prefix="minimax",  # MiniMax-M2.1 → minimax/MiniMax-M2.1
         skip_prefixes=("minimax/", "openrouter/"),
         env_extras=(),
         is_gateway=False,
@@ -354,39 +331,35 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # === 本地部署（通过配置键匹配，而非 api_base）=========
-
-    # vLLM / 任意 OpenAI 兼容的本地服务器。
-    # 当配置键为 "vllm" 时检测（provider_name="vllm"）。
+    # === Local deployment (matched by config key, NOT by api_base) =========
+    # vLLM / any OpenAI-compatible local server.
+    # Detected when config key is "vllm" (provider_name="vllm").
     ProviderSpec(
         name="vllm",
         keywords=("vllm",),
         env_key="HOSTED_VLLM_API_KEY",
         display_name="vLLM/Local",
-        litellm_prefix="hosted_vllm",      # Llama-3-8B → hosted_vllm/Llama-3-8B
+        litellm_prefix="hosted_vllm",  # Llama-3-8B → hosted_vllm/Llama-3-8B
         skip_prefixes=(),
         env_extras=(),
         is_gateway=False,
         is_local=True,
         detect_by_key_prefix="",
         detect_by_base_keyword="",
-        default_api_base="",                # user must provide in config
+        default_api_base="",  # user must provide in config
         strip_model_prefix=False,
         model_overrides=(),
     ),
-
-    # === 辅助（非主要 LLM 提供商）===========================
-
-    # Groq：主要用于 Whisper 语音转录，也可用于 LLM。
-    # 需要 "groq/" 前缀用于 LiteLLM 路由。放在最后 —— 它很少赢得回退。
+    # === Auxiliary (not a primary LLM provider) ============================
+    # Groq: mainly used for Whisper voice transcription, also usable for LLM.
+    # Needs "groq/" prefix for LiteLLM routing. Placed last — it rarely wins fallback.
     ProviderSpec(
         name="groq",
         keywords=("groq",),
         env_key="GROQ_API_KEY",
         display_name="Groq",
-        litellm_prefix="groq",              # llama3-8b-8192 → groq/llama3-8b-8192
-        skip_prefixes=("groq/",),           # avoid double-prefix
+        litellm_prefix="groq",  # llama3-8b-8192 → groq/llama3-8b-8192
+        skip_prefixes=("groq/",),  # avoid double-prefix
         env_extras=(),
         is_gateway=False,
         is_local=False,
@@ -400,25 +373,28 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# 查找辅助函数
+# Lookup helpers
 # ---------------------------------------------------------------------------
 
+
 def find_by_model(model: str) -> ProviderSpec | None:
-    """通过模型名称关键词匹配标准提供商（不区分大小写）。
-    跳过网关/本地 —— 那些通过 api_key/api_base 匹配。"""
+    """Match a standard provider by model-name keyword (case-insensitive).
+    Skips gateways/local — those are matched by api_key/api_base instead."""
     model_lower = model.lower()
     model_normalized = model_lower.replace("-", "_")
     model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
     normalized_prefix = model_prefix.replace("-", "_")
     std_specs = [s for s in PROVIDERS if not s.is_gateway and not s.is_local]
 
-    # 优先使用显式的提供商前缀 —— 防止 `github-copilot/...codex` 匹配到 openai_codex。
+    # Prefer explicit provider prefix — prevents `github-copilot/...codex` matching openai_codex.
     for spec in std_specs:
         if model_prefix and normalized_prefix == spec.name:
             return spec
 
     for spec in std_specs:
-        if any(kw in model_lower or kw.replace("-", "_") in model_normalized for kw in spec.keywords):
+        if any(
+            kw in model_lower or kw.replace("-", "_") in model_normalized for kw in spec.keywords
+        ):
             return spec
     return None
 
@@ -428,23 +404,23 @@ def find_gateway(
     api_key: str | None = None,
     api_base: str | None = None,
 ) -> ProviderSpec | None:
-    """检测网关/本地提供商。
+    """Detect gateway/local provider.
 
-    优先级：
-      1. provider_name —— 如果它映射到网关/本地规范，直接使用。
-      2. api_key 前缀 —— 例如 "sk-or-" → OpenRouter。
-      3. api_base 关键词 —— 例如 URL 中的 "aihubmix" → AiHubMix。
+    Priority:
+      1. provider_name — if it maps to a gateway/local spec, use it directly.
+      2. api_key prefix — e.g. "sk-or-" → OpenRouter.
+      3. api_base keyword — e.g. "aihubmix" in URL → AiHubMix.
 
-    带有自定义 api_base 的标准提供商（例如代理后的 DeepSeek）
-    不会被误认为 vLLM —— 旧的回退逻辑已被移除。
+    A standard provider with a custom api_base (e.g. DeepSeek behind a proxy)
+    will NOT be mistaken for vLLM — the old fallback is gone.
     """
-    # 1. 通过配置键直接匹配
+    # 1. Direct match by config key
     if provider_name:
         spec = find_by_name(provider_name)
         if spec and (spec.is_gateway or spec.is_local):
             return spec
 
-    # 2. 通过 api_key 前缀 / api_base 关键词自动检测
+    # 2. Auto-detect by api_key prefix / api_base keyword
     for spec in PROVIDERS:
         if spec.detect_by_key_prefix and api_key and api_key.startswith(spec.detect_by_key_prefix):
             return spec
@@ -455,7 +431,7 @@ def find_gateway(
 
 
 def find_by_name(name: str) -> ProviderSpec | None:
-    """通过配置字段名称查找提供商规范，例如 "dashscope"。"""
+    """Find a provider spec by config field name, e.g. "dashscope"."""
     for spec in PROVIDERS:
         if spec.name == name:
             return spec
