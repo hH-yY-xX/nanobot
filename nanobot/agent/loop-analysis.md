@@ -26,14 +26,26 @@ AgentLoop
 │   ├── max_iterations: int      # 最大迭代次数 (默认40)
 │   ├── temperature: float       # 温度 (默认0.1)
 │   ├── max_tokens: int          # 最大token数 (默认4096)
-│   └── memory_window: int       # 记忆窗口 (默认100)
+│   ├── memory_window: int       # 记忆窗口 (默认100)
+│   ├── reasoning_effort: str    # 推理努力程度
+│   ├── brave_api_key: str       # Brave搜索API密钥
+│   ├── web_proxy: str           # Web代理
+│   ├── exec_config: ExecToolConfig  # 执行工具配置
+│   ├── cron_service: CronService    # 定时任务服务
+│   ├── restrict_to_workspace: bool  # 限制在工作目录
+│   ├── mcp_servers: dict        # MCP服务器配置
+│   └── channels_config: ChannelsConfig  # 频道配置
 │
 └── 状态管理
     ├── _running: bool           # 运行状态
     ├── _mcp_connected: bool     # MCP连接状态
-    ├── _active_tasks: dict      # 活跃任务映射
+    ├── _mcp_connecting: bool    # MCP连接中
+    ├── _mcp_stack: AsyncExitStack  # MCP连接栈
+    ├── _active_tasks: dict      # 活跃任务映射 (session_key -> tasks)
     ├── _consolidating: set      # 正在整合的会话
-    └── _processing_lock: Lock   # 处理锁
+    ├── _consolidation_tasks: set    # 整合任务强引用
+    ├── _consolidation_locks: WeakValueDictionary  # 每会话整合锁
+    └── _processing_lock: Lock   # 全局处理锁
 ```
 
 ---
@@ -88,17 +100,20 @@ AgentLoop
 ├─────────────────────────────────────────────────────────────┤
 │  while iteration < max_iterations:                          │
 │  │                                                          │
-│  ├── provider.chat() 调用LLM                                │
+│  ├── provider.chat_with_retry() 调用LLM (带重试)            │
 │  │                                                          │
 │  ├── 有工具调用 (has_tool_calls):                            │
+│  │   ├── _strip_think() 移除思考块                          │
 │  │   ├── on_progress() 发送思考内容                          │
-│  │   ├── add_assistant_message() 添加助手消息                │
+│  │   ├── _tool_hint() 格式化工具提示                        │
+│  │   ├── context.add_assistant_message() 添加助手消息        │
 │  │   ├── tools.execute() 执行工具                            │
-│  │   └── add_tool_result() 添加工具结果                      │
+│  │   └── context.add_tool_result() 添加工具结果              │
 │  │                                                          │
 │  └── 无工具调用:                                             │
-│      ├── error → 记录错误，返回错误消息                       │
-│      └── 正常 → 返回最终内容                                 │
+│      ├── _strip_think() 移除思考块                          │
+│      ├── finish_reason == "error" → 记录错误，返回错误消息   │
+│      └── 正常 → context.add_assistant_message() → 返回内容   │
 │                                                             │
 │  达到最大迭代 → 返回超限提示                                  │
 └─────────────────────────────────────────────────────────────┘
@@ -117,20 +132,27 @@ AgentLoop
 | `EditFileTool` | edit_file | 编辑文件 |
 | `ListDirTool` | list_dir | 列出目录 |
 | `ExecTool` | exec | 执行Shell命令 |
-| `WebSearchTool` | web_search | 网页搜索 |
+| `WebSearchTool` | web_search | 网页搜索 (需Brave API密钥) |
 | `WebFetchTool` | web_fetch | 获取网页内容 |
 | `MessageTool` | message | 发送消息 |
 | `SpawnTool` | spawn | 生成子代理 |
-| `CronTool` | cron | 定时任务 |
+| `CronTool` | cron | 定时任务 (可选，需cron_service) |
+| MCP Tools | - | 动态加载的MCP服务器工具 |
 
-### 工具上下文注入
+### 工具上下文注入 (`_set_tool_context`)
 
 ```python
 def _set_tool_context(channel, chat_id, message_id):
     # 为 message, spawn, cron 工具设置路由上下文
     for name in ("message", "spawn", "cron"):
-        tool.set_context(channel, chat_id, ...)
+        if tool := self.tools.get(name):
+            if hasattr(tool, "set_context"):
+                tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
 ```
+
+- `message` 工具: 设置 `channel`, `chat_id`, `message_id`
+- `spawn` 工具: 设置 `channel`, `chat_id`
+- `cron` 工具: 设置 `channel`, `chat_id`
 
 ---
 
@@ -146,19 +168,26 @@ def _set_tool_context(channel, chat_id, message_id):
 | `_active_tasks` | `dict[str, list[Task]]` | 活跃任务跟踪 |
 | `_consolidation_tasks` | `set[Task]` | 整合任务强引用 |
 
-### /stop 命令处理
+### /stop 命令处理 (`_handle_stop`)
 
 ```python
-async def _handle_stop(msg):
+async def _handle_stop(msg: InboundMessage) -> None:
     # 1. 取消所有活跃任务
-    tasks = _active_tasks.pop(session_key, [])
-    cancelled = sum(t.cancel() for t in tasks if not t.done())
+    tasks = self._active_tasks.pop(msg.session_key, [])
+    cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
+    for t in tasks:
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
     
     # 2. 取消子代理
-    sub_cancelled = await subagents.cancel_by_session(session_key)
+    sub_cancelled = await self.subagents.cancel_by_session(msg.session_key)
     
     # 3. 返回停止结果
-    return f"⏹ Stopped {total} task(s)."
+    total = cancelled + sub_cancelled
+    content = f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
+    await self.bus.publish_outbound(OutboundMessage(...))
 ```
 
 ---
@@ -230,7 +259,11 @@ async def _connect_mcp():
 移除某些模型返回的 `<think>...</think>` 思考块。
 
 ```python
-re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
+@staticmethod
+def _strip_think(text: str | None) -> str | None:
+    if not text:
+        return None
+    return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
 ```
 
 ### `_tool_hint`
@@ -238,5 +271,63 @@ re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
 格式化工具调用为简洁提示：
 
 ```python
+@staticmethod
+def _tool_hint(tool_calls: list) -> str:
+    def _fmt(tc):
+        args = (tc.arguments[0] if isinstance(tc.arguments, list) else tc.arguments) or {}
+        val = next(iter(args.values()), None) if isinstance(args, dict) else None
+        if not isinstance(val, str):
+            return tc.name
+        return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
+    return ", ".join(_fmt(tc) for tc in tool_calls)
+
+# 示例:
 # 输入: tool_call(name="web_search", arguments={"query": "Python tutorial"})
-# 输出: '
+# 输出: 'web_search("Python tutorial")'
+```
+
+---
+
+## 其他公共方法
+
+### `process_direct`
+
+直接处理消息（用于 CLI 或定时任务）：
+
+```python
+async def process_direct(
+    self,
+    content: str,
+    session_key: str = "cli:direct",
+    channel: str = "cli",
+    chat_id: str = "direct",
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
+) -> str:
+```
+
+### `stop`
+
+停止 Agent 循环：
+
+```python
+def stop(self) -> None:
+    self._running = False
+```
+
+### `close_mcp`
+
+关闭 MCP 连接：
+
+```python
+async def close_mcp(self) -> None:
+    if self._mcp_stack:
+        await self._mcp_stack.aclose()
+```
+
+---
+
+## 常量
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `_TOOL_RESULT_MAX_CHARS` | 500 | 工具结果最大字符数，超出则截断 |
