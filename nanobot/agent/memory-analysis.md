@@ -63,20 +63,34 @@ _SAVE_MEMORY_TOOL = [
         "type": "function",
         "function": {
             "name": "save_memory",
+            "description": "Save the memory consolidation result to persistent storage.",
             "parameters": {
+                "type": "object",
                 "properties": {
                     "history_entry": {
-                        "description": "2-5句话的事件摘要，以 [YYYY-MM-DD HH:MM] 开头"
+                        "type": "string",
+                        "description": "A paragraph (2-5 sentences) summarizing key events/decisions/topics. "
+                        "Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
                     },
                     "memory_update": {
-                        "description": "完整更新后的 Markdown 长期记忆"
-                    }
-                }
-            }
-        }
+                        "type": "string",
+                        "description": "Full updated long-term memory as markdown. Include all existing "
+                        "facts plus new ones. Return unchanged if nothing new.",
+                    },
+                },
+                "required": ["history_entry", "memory_update"],
+            },
+        },
     }
 ]
 ```
+
+**关键字段说明：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `history_entry` | string | 是 | 2-5句话的事件摘要，以 `[YYYY-MM-DD HH:MM]` 开头，便于 grep 搜索 |
+| `memory_update` | string | 是 | 完整的 Markdown 格式长期记忆，包含所有已有事实和新事实 |
 
 ---
 
@@ -182,8 +196,13 @@ async def consolidate(
 **关键逻辑：**
 
 1. **消息选取策略**
-   - `archive_all=True`: 整合所有消息
+   - `archive_all=True`: 整合所有消息 (`keep_count = 0`)
    - `archive_all=False`: 保留 `memory_window // 2` 条最新消息，整合其余
+   
+   **提前返回条件：**
+   - 消息总数 ≤ `keep_count`：无需整合
+   - `len(messages) - last_consolidated <= 0`：无新消息需要整合
+   - `old_messages` 为空：无可整合内容
 
 2. **消息格式化**
    ```python
@@ -200,14 +219,46 @@ async def consolidate(
    ```
 
 4. **工具调用结果解析**
+   
+   兼容多种 Provider 返回格式：
+   ```python
+   args = response.tool_calls[0].arguments
+   if isinstance(args, str):
+       args = json.loads(args)  # JSON 字符串转 dict
+   if isinstance(args, list):
+       if args and isinstance(args[0], dict):
+           args = args[0]  # 取列表第一个元素
+       else:
+           return False  # 空列表或非 dict 列表视为失败
+   if not isinstance(args, dict):
+       return False  # 非 dict 类型视为失败
+   ```
+   
    - 支持 `dict` 和 JSON 字符串两种格式
    - 处理某些 provider 返回 `list` 的边缘情况
+   - 严格的类型检查确保数据安全
 
-5. **文件写入**
+5. **文件写入与类型处理**
+   
+   ```python
+   if entry := args.get("history_entry"):
+       if not isinstance(entry, str):
+           entry = json.dumps(entry, ensure_ascii=False)
+       self.append_history(entry)
+   if update := args.get("memory_update"):
+       if not isinstance(update, str):
+           update = json.dumps(update, ensure_ascii=False)
+       if update != current_memory:  # 仅当内容变化时才写入
+           self.write_long_term(update)
+   ```
+   
    - `history_entry` → 追加到 HISTORY.md
    - `memory_update` → 覆盖 MEMORY.md（仅当内容变化时）
+   - 非字符串值自动转换为 JSON 字符串
 
-### get_memory_context() 方法
+### 其他方法
+
+#### get_memory_context()
 
 ```python
 def get_memory_context(self) -> str:
@@ -216,6 +267,14 @@ def get_memory_context(self) -> str:
 ```
 
 在 `ContextBuilder.build_system_prompt()` 中被调用，将长期记忆注入系统提示。
+
+#### 文件操作方法
+
+| 方法 | 功能 | 实现细节 |
+|------|------|----------|
+| `read_long_term()` | 读取 MEMORY.md | 文件不存在返回空字符串，UTF-8 编码 |
+| `write_long_term(content)` | 写入长期记忆 | 覆盖写入，UTF-8 编码 |
+| `append_history(entry)` | 追加历史条目 | 追加模式写入，自动添加换行 |
 
 ---
 
@@ -262,12 +321,23 @@ asyncio.create_task(_consolidate_and_unlock())
 
 ```python
 # 兼容多种 provider 返回格式
+args = response.tool_calls[0].arguments
 if isinstance(args, str):
     args = json.loads(args)
 if isinstance(args, list):
     if args and isinstance(args[0], dict):
         args = args[0]
+    else:
+        logger.warning("unexpected arguments as empty or non-dict list")
+        return False
+if not isinstance(args, dict):
+    logger.warning("unexpected arguments type {}", type(args).__name__)
+    return False
 ```
+
+- 三层类型检查：字符串 → 列表 → 字典
+- 详细的警告日志便于问题定位
+- 严格的失败处理避免脏数据写入
 
 ---
 
@@ -293,18 +363,22 @@ if isinstance(args, list):
 memory.py
     │
     ├── 内部依赖
-    │   ├── nanobot.utils.helpers.ensure_dir  # 目录创建工具
-    │   └── nanobot.providers.base.LLMProvider  # LLM 抽象接口
+    │   ├── nanobot.utils.helpers.ensure_dir      # 目录创建工具
+    │   ├── nanobot.providers.base.LLMProvider    # LLM 抽象接口
+    │   └── nanobot.session.manager.Session       # 会话数据模型 (TYPE_CHECKING)
     │
     ├── 被依赖于
     │   ├── nanobot.agent.loop.AgentLoop._consolidate_memory()
-    │   └── nanobot.agent.context.ContextBuilder.__init__()
+    │   └── nanobot.agent.context.ContextBuilder.get_memory_context()
     │
     └── 外部库
-        ├── pathlib.Path  # 文件路径操作
-        ├── json  # JSON 序列化
-        └── loguru.logger  # 日志记录
+        ├── pathlib.Path    # 文件路径操作
+        ├── json            # JSON 序列化
+        ├── typing          # 类型提示
+        └── loguru.logger   # 日志记录
 ```
+
+**注意：** `Session` 和 `LLMProvider` 使用 `TYPE_CHECKING` 延迟导入，避免循环依赖。
 
 ---
 
