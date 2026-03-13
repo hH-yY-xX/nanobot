@@ -1,4 +1,4 @@
-"""LLM 提供商基础接口。"""
+"""Base LLM provider interface."""
 
 import asyncio
 import json
@@ -11,7 +11,7 @@ from loguru import logger
 
 @dataclass
 class ToolCallRequest:
-    """来自 LLM 的工具调用请求。"""
+    """A tool call request from the LLM."""
     id: str
     name: str
     arguments: dict[str, Any]
@@ -37,17 +37,17 @@ class ToolCallRequest:
 
 @dataclass
 class LLMResponse:
-    """来自 LLM 提供商的响应。"""
+    """Response from an LLM provider."""
     content: str | None
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
-
+    
     @property
     def has_tool_calls(self) -> bool:
-        """检查响应是否包含工具调用。"""
+        """Check if response contains tool calls."""
         return len(self.tool_calls) > 0
 
 
@@ -68,9 +68,10 @@ class GenerationSettings:
 
 class LLMProvider(ABC):
     """
-    LLM 提供商的抽象基类。
-
-    实现应该处理每个提供商 API 的具体细节，同时保持一致的接口。
+    Abstract base class for LLM providers.
+    
+    Implementations should handle the specifics of each provider's API
+    while maintaining a consistent interface.
     """
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
@@ -98,9 +99,10 @@ class LLMProvider(ABC):
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """替换导致提供商 400 错误的空文本内容。
+        """Replace empty text content that causes provider 400 errors.
 
-        当 MCP 工具返回空值时可能出现空内容。大多数提供商拒绝空字符串内容或列表内容中的空文本块。
+        Empty content can appear when MCP tools return nothing. Most providers
+        reject empty-string content or empty text blocks in list content.
         """
         result: list[dict[str, Any]] = []
         for msg in messages:
@@ -164,19 +166,21 @@ class LLMProvider(ABC):
         max_tokens: int = 4096,
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
         """
-        发送聊天完成请求。
-
-        参数：
-            messages: 带有 'role' 和 'content' 的消息字典列表
-            tools: 可选的工具定义列表
-            model: 模型标识符（提供商特定）
-            max_tokens: 响应中的最大 token 数
-            temperature: 采样温度
-
-        返回：
-            包含内容和/或工具调用的 LLMResponse
+        Send a chat completion request.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content'.
+            tools: Optional list of tool definitions.
+            model: Model identifier (provider-specific).
+            max_tokens: Maximum tokens in response.
+            temperature: Sampling temperature.
+            tool_choice: Tool selection strategy ("auto", "required", or specific tool dict).
+        
+        Returns:
+            LLMResponse with content and/or tool calls.
         """
         pass
 
@@ -193,6 +197,7 @@ class LLMProvider(ABC):
         max_tokens: object = _SENTINEL,
         temperature: object = _SENTINEL,
         reasoning_effort: object = _SENTINEL,
+        tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Call chat() with retry on transient provider failures.
 
@@ -216,6 +221,7 @@ class LLMProvider(ABC):
                     max_tokens=max_tokens,
                     temperature=temperature,
                     reasoning_effort=reasoning_effort,
+                    tool_choice=tool_choice,
                 )
             except asyncio.CancelledError:
                 raise
@@ -248,6 +254,7 @@ class LLMProvider(ABC):
                 max_tokens=max_tokens,
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
+                tool_choice=tool_choice,
             )
         except asyncio.CancelledError:
             raise
@@ -259,5 +266,5 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def get_default_model(self) -> str:
-        """获取此提供商的默认模型。"""
+        """Get the default model for this provider."""
         pass
