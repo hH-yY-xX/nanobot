@@ -25,3 +25,6 @@ tests/
 .idea
 *.lock
 
+
+.DS_Store
+uv.lock
